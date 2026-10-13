@@ -1,8 +1,11 @@
 // entrypoints/youtube.content.ts
 // Roda dentro das abas do YouTube e obedece comandos vindos do popup.
 // Guarda o volume/mudo do canal e aplica o volume efetivo: (canal / 100) × (master / 100).
+// O volume vai pela API do player do YouTube (utils/player.ts); escrito só no <video>,
+// ele seria desfeito na próxima vez que o player reaplicasse o próprio volume.
 
 import { MASTER_KEY, type ChannelState, type MasterState, type Message } from "@/utils/mixer";
+import { callPlayer } from "@/utils/player";
 
 export default defineContentScript({
   matches: ["*://*.youtube.com/*"],
@@ -18,12 +21,19 @@ export default defineContentScript({
     const apply = () => {
       const v = getVideo();
       if (!v || !channel) return;
-      v.volume = (channel.volume / 100) * (master.volume / 100);
-      v.muted = channel.muted || master.muted;
+      const volume = Math.round((channel.volume * master.volume) / 100);
+      const muted = channel.muted || master.muted;
+      // Sem a API (player ainda carregando), vale o <video>; o loadedmetadata reaplica depois.
+      if (!callPlayer({ set: { volume, muted } })) {
+        v.volume = volume / 100;
+        v.muted = muted;
+      }
     };
 
+    // O canal começa no volume do player, e não no do <video>, que inclui a normalização
+    // de loudness do YouTube.
     const ensureChannel = (v: HTMLVideoElement) => {
-      channel ??= { volume: Math.round(v.volume * 100), muted: v.muted };
+      channel ??= callPlayer({}) ?? { volume: Math.round(v.volume * 100), muted: v.muted };
       return channel;
     };
 
@@ -39,7 +49,8 @@ export default defineContentScript({
       apply();
     });
 
-    // Navegação na SPA carrega um vídeo novo e o player reaplica o próprio volume.
+    // Navegação na SPA (e o próximo Short) carrega um vídeo novo, e o player pode restaurar
+    // o volume salvo do YouTube (syncVolume); reaplicamos o do canal.
     document.addEventListener("loadedmetadata", apply, true);
 
     browser.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {

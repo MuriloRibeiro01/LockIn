@@ -130,7 +130,7 @@ npm run compile
 
 A cada segundo, o popup consulta as abas do YouTube e pergunta o estado de cada uma ao content script dela. Uma aba só vira canal se responder, ou seja, se tiver um player. Os comandos (volume, mudo, play/pause) vão para a aba como mensagens, e o contrato dessas mensagens fica em [`utils/mixer.ts`](tabmixer/utils/mixer.ts).
 
-O content script ([`youtube.content.ts`](tabmixer/entrypoints/youtube.content.ts)) guarda o volume e o mudo do canal e aplica o volume efetivo ao `<video>`. O master não passa por mensagem: o popup grava em `storage.local`, e cada content script escuta `storage.onChanged` e recalcula o volume. Como o YouTube troca de vídeo sem recarregar a página, o content script também reaplica o volume a cada vídeo novo (`loadedmetadata`).
+O content script ([`youtube.content.ts`](tabmixer/entrypoints/youtube.content.ts)) guarda o volume e o mudo do canal e aplica o volume efetivo pela API do próprio player do YouTube (`setVolume`, `mute`, `unMute`), e não direto no `<video>`. O player guarda um volume próprio e o reaplica ao `<video>` em vários momentos (troca de faixa de áudio, religação da mídia); escrito só no `<video>`, o ajuste do UnderTone durava até a próxima reaplicação. O volume é aplicado sem gravar em `yt-player-volume`, então o ajuste de uma aba não muda o volume padrão do YouTube. A API só existe no contexto da página: no Firefox o content script a alcança por Xray, e no Chrome um script no mundo da página ([`player-main.content.ts`](tabmixer/entrypoints/player-main.content.ts)) atende os pedidos ([`utils/player.ts`](tabmixer/utils/player.ts)). O master não passa por mensagem: o popup grava em `storage.local`, e cada content script escuta `storage.onChanged` e recalcula o volume. Como o YouTube troca de vídeo sem recarregar a página, o content script também reaplica o volume a cada vídeo novo (`loadedmetadata`).
 
 ### Teclas de mídia
 
@@ -154,12 +154,14 @@ store-assets/                  prints para as lojas e para este README
 tabmixer/
   wxt.config.ts                manifest e permissões (por navegador)
   utils/mixer.ts               tipos e mensagens entre popup, content scripts e background
+  utils/player.ts              volume e mudo pela API do player do YouTube
   entrypoints/
     background.ts              "Pausar tudo" / "Retomar" pelas teclas de mídia
     youtube.content.ts         controla o <video> em cada aba
     mediakeys.content.ts       Firefox: intercepta play/pause da Media Session
     mediakeys-main.content.ts  Chrome: o mesmo, no mundo da página
     mediakeys-bridge.content.ts  Chrome: leva a tecla do mundo da página ao background
+    player-main.content.ts     Chrome: chama a API do player no mundo da página
     popup/
       App.tsx                  estado e integração com o navegador
       components/              Popup, MasterStrip, TrackStrip, Fader, Readout,
@@ -180,7 +182,7 @@ As fontes são empacotadas na extensão via `@fontsource`, então o popup não f
 - **Uma aba de vídeo não aparece no popup.** Se a aba já estava aberta antes de a extensão ser instalada (ou recarregada), ela ainda não tem o content script. Recarregue a aba.
 - **O popup diz "Nenhuma aba tocando áudio agora".** Só páginas de vídeo (`/watch` e `/shorts`) contam. A página inicial, a busca e os canais do YouTube não aparecem.
 - **O toque no fone pausa só uma aba.** A aba que recebeu o toque foi aberta antes de a extensão ser instalada ou atualizada. Recarregue-a.
-- **O volume mudou sozinho ao trocar de vídeo.** O player do YouTube reaplica o próprio volume ao carregar um vídeo, e o UnderTone sobrescreve logo em seguida. Se você mexer no volume pelo player do YouTube, o próximo vídeo volta ao valor do canal.
+- **O volume voltou ao valor do canal depois de mexer na barra do YouTube.** Ao carregar um vídeo novo (ou o próximo Short), o UnderTone reaplica o volume do canal. Ajuste o volume pelo popup.
 
 ## Stack
 
